@@ -50,7 +50,7 @@ def parse_series_id(series_id: str) -> tuple[str, str, str]:
     return kind, fuel, region
 
 
-def discover_sources(client: httpx.Client) -> tuple[str, str, date]:
+def discover_sources(client: httpx.Client) -> tuple[str, str, date, date]:
     tgp = client.get(TGP_PAGE)
     retail = client.get(RETAIL_PAGE)
     tgp.raise_for_status()
@@ -60,7 +60,12 @@ def discover_sources(client: httpx.Client) -> tuple[str, str, date]:
     if not tgp_match or not retail_match:
         raise ValueError("AIP official workbook links missing or blocked by source protection")
     published = datetime.strptime(tgp_match.group(2), "%d-%b-%Y").replace(tzinfo=UTC).date()
-    return urljoin(ROOT, tgp_match.group(1)), urljoin(ROOT, retail_match.group(1)), published
+    retail_text = html.unescape(re.sub(r"<[^>]+>", " ", retail.text))
+    retail_date = re.search(r"PUBLICATION DATE\s+(\d{1,2} [A-Za-z]+ \d{4})", retail_text, re.IGNORECASE)
+    if retail_date is None:
+        raise ValueError("AIP retail publication date missing")
+    retail_published = datetime.strptime(retail_date.group(1), "%d %B %Y").replace(tzinfo=UTC).date()
+    return urljoin(ROOT, tgp_match.group(1)), urljoin(ROOT, retail_match.group(1)), published, retail_published
 
 
 def parse_workbook(blob: bytes, url: str, kind: str, published: date) -> SourceData:
@@ -111,11 +116,11 @@ def parse_workbook(blob: bytes, url: str, kind: str, published: date) -> SourceD
 
 def collect() -> SourceData:
     with httpx.Client(timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        tgp_url, retail_url, published = discover_sources(client)
+        tgp_url, retail_url, published, retail_published = discover_sources(client)
         tgp = client.get(tgp_url)
         retail = client.get(retail_url)
         tgp.raise_for_status()
         retail.raise_for_status()
     first = parse_workbook(tgp.content, tgp_url, "TGP", published)
-    second = parse_workbook(retail.content, retail_url, "RETAIL", published)
+    second = parse_workbook(retail.content, retail_url, "RETAIL", retail_published)
     return SourceData(first.observations + second.observations, first.catalog | second.catalog)
