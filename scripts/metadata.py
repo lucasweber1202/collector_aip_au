@@ -21,9 +21,9 @@ _TABLE = f"{SCHEMA_NAME}.{METADATA_TABLE}"
 BATCH_SIZE = 500
 
 # Fleet controlled vocabularies, narrowed to the values this repository emits.
-FREQUENCIES = frozenset({"monthly", "quarterly"})
-UNITS = frozenset({"percent", "index"})
-ECO_GROUPS = frozenset({"interest_rates", "exchange_rates"})
+FREQUENCIES = frozenset({"daily", "annual"})
+UNITS = frozenset({"other"})
+ECO_GROUPS = frozenset({"consumer_prices", "producer_prices"})
 
 _COMPARABLE_COLUMNS = (
     "name",
