@@ -20,7 +20,12 @@ def tgp(days: list[date], base: float = 200.0) -> bytes:
         sheet = book.create_sheet(name)
         sheet.append(["AVERAGE", *CITIES])
         for n, day in enumerate(days):
-            sheet.append([datetime.combine(day, datetime.min.time()), *[base + offset * 30 + n + i / 10 for i in range(8)]])
+            sheet.append(
+                [
+                    datetime.combine(day, datetime.min.time()),
+                    *[base + offset * 30 + n + i / 10 for i in range(8)],
+                ]
+            )
     out = io.BytesIO()
     book.save(out)
     return out.getvalue()
