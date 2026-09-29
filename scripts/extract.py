@@ -1,4 +1,5 @@
 """Official AIP terminal gate and calendar-year retail fuel prices."""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,16 +28,27 @@ TGP_PAGE = ROOT + "/resources/historical-ulp-and-diesel-tgp-data/"
 RETAIL_PAGE = ROOT + "/resources/aip-annual-retail-price-data/"
 CITIES = ("Sydney", "Melbourne", "Brisbane", "Adelaide", "Perth", "Darwin", "Hobart", "National")
 RETAIL_REGIONS = ("NSW", "VIC", "QLD", "SA", "WA", "NT", "TAS", "National")
-SHEETS = {"Petrol TGP": ("TGP", "PETROL", "daily"), "Diesel TGP": ("TGP", "DIESEL", "daily"),
-          "Average Petrol Retail": ("RETAIL", "PETROL", "annual"),
-          "Average Diesel Retail": ("RETAIL", "DIESEL", "annual")}
+SHEETS = {
+    "Petrol TGP": ("TGP", "PETROL", "daily"),
+    "Diesel TGP": ("TGP", "DIESEL", "daily"),
+    "Average Petrol Retail": ("RETAIL", "PETROL", "annual"),
+    "Average Diesel Retail": ("RETAIL", "DIESEL", "annual"),
+}
 
 
 MIN_PAYLOAD_BYTES = {"TGP": 200_000, "RETAIL": 20_000}
 MIN_OBSERVATIONS = {"TGP": 50_000, "RETAIL": 200}
 # Markers of bot-protection interstitials seen on Australian and NZ sources.
-CHALLENGE_MARKERS = (b"captcha", b"incapsula", b"_incapsula_resource", b"cf-mitigated", b"just a moment",
-                     b"pardon our interruption", b"attention required", b"access denied")
+CHALLENGE_MARKERS = (
+    b"captcha",
+    b"incapsula",
+    b"_incapsula_resource",
+    b"cf-mitigated",
+    b"just a moment",
+    b"pardon our interruption",
+    b"attention required",
+    b"access denied",
+)
 
 
 class SourceLayoutError(ValueError):
@@ -55,7 +67,11 @@ class SourceData:
 
 
 def build_series_id(kind: str, fuel: str, city: str) -> str:
-    if kind not in {"TGP", "RETAIL"} or fuel not in {"PETROL", "DIESEL"} or city not in (CITIES if kind == "TGP" else RETAIL_REGIONS):
+    if (
+        kind not in {"TGP", "RETAIL"}
+        or fuel not in {"PETROL", "DIESEL"}
+        or city not in (CITIES if kind == "TGP" else RETAIL_REGIONS)
+    ):
         raise ValueError(f"Invalid AIP identity: {kind}, {fuel}, {city}")
     return f"AIP_{kind}_{fuel}_{city.upper()}"
 
@@ -87,13 +103,17 @@ def fetch(client: httpx.Client, url: str) -> httpx.Response:
             response = client.get(url)
         except httpx.TransportError as exc:
             if attempt == MAX_RETRIES:
-                raise SourceAccessError(f"AIP unreachable after {attempt + 1} attempts: {url}") from exc
+                raise SourceAccessError(
+                    f"AIP unreachable after {attempt + 1} attempts: {url}"
+                ) from exc
             logger.warning("AIP transport error on %s (%s); retrying", url, exc)
         else:
             if response.status_code != 429 and response.status_code < 500:
                 if response.status_code >= 400:
                     kind = "challenge" if _is_challenge(response.content) else "error"
-                    raise SourceAccessError(f"AIP returned HTTP {response.status_code} ({kind}) for {url}")
+                    raise SourceAccessError(
+                        f"AIP returned HTTP {response.status_code} ({kind}) for {url}"
+                    )
                 return response
             if attempt == MAX_RETRIES:
                 raise SourceAccessError(f"AIP returned HTTP {response.status_code} for {url}")
@@ -113,7 +133,11 @@ def check_payload(response: httpx.Response, kind: str) -> bytes:
     blob = response.content
     content_type = response.headers.get("content-type", "").lower()
     head = blob[:512].lstrip().lower()
-    if "text/html" in content_type or head.startswith((b"<!doctype", b"<html")) or _is_challenge(blob[:2048]):
+    if (
+        "text/html" in content_type
+        or head.startswith((b"<!doctype", b"<html"))
+        or _is_challenge(blob[:2048])
+    ):
         raise SourceAccessError(f"AIP returned HTML instead of the {kind} workbook: {response.url}")
     if not blob.startswith(b"PK\x03\x04"):
         raise SourceAccessError(f"AIP {kind} file is not an XLSX workbook: {response.url}")
@@ -126,20 +150,35 @@ def discover_sources(client: httpx.Client) -> tuple[str, str, date, date]:
     tgp_text = check_page(fetch(client, TGP_PAGE))
     time.sleep(DOWNLOAD_DELAY)
     retail_text = check_page(fetch(client, RETAIL_PAGE))
-    tgp_match = re.search(r'href="([^"]+/AIP_TGP_Data_(\d{2}-[A-Za-z]{3}-\d{4})\.xlsx)"', html.unescape(tgp_text))
-    retail_match = re.search(r'href="([^"]+/AIP_Annual_Retail_Price_Data\.xlsx)"', html.unescape(retail_text))
+    tgp_match = re.search(
+        r'href="([^"]+/AIP_TGP_Data_(\d{2}-[A-Za-z]{3}-\d{4})\.xlsx)"', html.unescape(tgp_text)
+    )
+    retail_match = re.search(
+        r'href="([^"]+/AIP_Annual_Retail_Price_Data\.xlsx)"', html.unescape(retail_text)
+    )
     if not tgp_match or not retail_match:
         raise SourceLayoutError("AIP official workbook links missing from the source pages")
     published = datetime.strptime(tgp_match.group(2), "%d-%b-%Y").replace(tzinfo=UTC).date()
     retail_plain = html.unescape(re.sub(r"<[^>]+>", " ", retail_text))
-    retail_date = re.search(r"PUBLICATION DATE\s+(\d{1,2} [A-Za-z]+ \d{4})", retail_plain, re.IGNORECASE)
+    retail_date = re.search(
+        r"PUBLICATION DATE\s+(\d{1,2} [A-Za-z]+ \d{4})", retail_plain, re.IGNORECASE
+    )
     if retail_date is None:
         raise SourceLayoutError("AIP retail publication date missing")
-    retail_published = datetime.strptime(retail_date.group(1), "%d %B %Y").replace(tzinfo=UTC).date()
-    return urljoin(ROOT, tgp_match.group(1)), urljoin(ROOT, retail_match.group(1)), published, retail_published
+    retail_published = (
+        datetime.strptime(retail_date.group(1), "%d %B %Y").replace(tzinfo=UTC).date()
+    )
+    return (
+        urljoin(ROOT, tgp_match.group(1)),
+        urljoin(ROOT, retail_match.group(1)),
+        published,
+        retail_published,
+    )
 
 
-def parse_workbook(blob: bytes, url: str, kind: str, published: date, min_observations: int | None = None) -> SourceData:
+def parse_workbook(
+    blob: bytes, url: str, kind: str, published: date, min_observations: int | None = None
+) -> SourceData:
     workbook = openpyxl.load_workbook(io.BytesIO(blob), read_only=True, data_only=True)
     names = [name for name, spec in SHEETS.items() if spec[0] == kind]
     if any(name not in workbook for name in names):
@@ -177,18 +216,29 @@ def parse_workbook(blob: bytes, url: str, kind: str, published: date, min_observ
                     raise ValueError(f"Duplicate AIP economic key: {key}")
                 seen.add(key)
                 observations.append(Observation(sid, ref, float(raw), snapshot))
-                catalog[sid] = {"name": f"{fuel.title()} {kind} {city}", "description": f"AIP {name}; {city}; cents per litre including GST",
-                                "country": "AUD", "frequency": frequency, "unit": "other", "eco_group": "consumer_prices" if kind == "RETAIL" else "producer_prices",
-                                "source_url": url, "last_publish_date": published}
+                catalog[sid] = {
+                    "name": f"{fuel.title()} {kind} {city}",
+                    "description": f"AIP {name}; {city}; cents per litre including GST",
+                    "country": "AUD",
+                    "frequency": frequency,
+                    "unit": "other",
+                    "eco_group": "consumer_prices" if kind == "RETAIL" else "producer_prices",
+                    "source_url": url,
+                    "last_publish_date": published,
+                }
     minimum = MIN_OBSERVATIONS[kind] if min_observations is None else min_observations
     if len(observations) < max(minimum, 1):
-        raise SourceLayoutError(f"AIP {kind} yielded {len(observations)} observations; expected at least {minimum}")
+        raise SourceLayoutError(
+            f"AIP {kind} yielded {len(observations)} observations; expected at least {minimum}"
+        )
     return SourceData(observations, catalog)
 
 
 def collect() -> SourceData:
     """Discover both workbooks on the official pages and parse them."""
-    with httpx.Client(timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True
+    ) as client:
         tgp_url, retail_url, published, retail_published = discover_sources(client)
         time.sleep(DOWNLOAD_DELAY)
         tgp = check_payload(fetch(client, tgp_url), "TGP")
@@ -197,8 +247,25 @@ def collect() -> SourceData:
     first = parse_workbook(tgp, tgp_url, "TGP", published)
     second = parse_workbook(retail, retail_url, "RETAIL", retail_published)
     evidence = tuple(
-        ReleaseEvidence(kind, url, when, max(o.reference_date for o in part.observations), frozenset(part.catalog))
-        for kind, url, when, part in (("TGP", tgp_url, published, first), ("RETAIL", retail_url, retail_published, second))
+        ReleaseEvidence(
+            kind,
+            url,
+            when,
+            max(o.reference_date for o in part.observations),
+            frozenset(part.catalog),
+        )
+        for kind, url, when, part in (
+            ("TGP", tgp_url, published, first),
+            ("RETAIL", retail_url, retail_published, second),
+        )
     )
-    logger.info("AIP TGP %s (%d obs), retail %s (%d obs)", published, len(first.observations), retail_published, len(second.observations))
-    return SourceData(first.observations + second.observations, first.catalog | second.catalog, evidence)
+    logger.info(
+        "AIP TGP %s (%d obs), retail %s (%d obs)",
+        published,
+        len(first.observations),
+        retail_published,
+        len(second.observations),
+    )
+    return SourceData(
+        first.observations + second.observations, first.catalog | second.catalog, evidence
+    )
