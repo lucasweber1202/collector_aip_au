@@ -21,6 +21,12 @@ from scripts.config import BACKOFF_FACTOR, DOWNLOAD_DELAY, MAX_RETRIES, REQUEST_
 from scripts.releases import ReleaseEvidence
 from scripts.time_series import Observation
 
+# Canonical metadata vocabulary produced by this source.
+FREQUENCIES: frozenset[str] = frozenset({"daily", "annual"})
+UNITS: frozenset[str] = frozenset({"other"})
+ECO_GROUPS: frozenset[str] = frozenset({"consumer_prices", "producer_prices"})
+
+
 logger = logging.getLogger(__name__)
 
 ROOT = "https://aip.com.au"
