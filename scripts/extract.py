@@ -17,7 +17,15 @@ from urllib.parse import urljoin
 import httpx
 import openpyxl
 
-from scripts.config import BACKOFF_FACTOR, DOWNLOAD_DELAY, MAX_RETRIES, REQUEST_TIMEOUT, USER_AGENT
+from scripts.config import (
+    BACKOFF_FACTOR,
+    DOWNLOAD_DELAY,
+    MAX_RETRIES,
+    MAX_STALE_MONTHS,
+    MIN_HISTORY_YEARS,
+    REQUEST_TIMEOUT,
+    USER_AGENT,
+)
 from scripts.releases import ReleaseEvidence
 from scripts.time_series import Observation
 
@@ -229,7 +237,7 @@ def parse_workbook(
                     "frequency": frequency,
                     "unit": "other",
                     "eco_group": "consumer_prices" if kind == "RETAIL" else "producer_prices",
-                    "source_url": url,
+                    "source_url": TGP_PAGE if kind == "TGP" else RETAIL_PAGE,
                     "last_publish_date": published,
                 }
     minimum = MIN_OBSERVATIONS[kind] if min_observations is None else min_observations
@@ -272,6 +280,41 @@ def collect() -> SourceData:
         retail_published,
         len(second.observations),
     )
-    return SourceData(
+    return filter_usable_series(SourceData(
         first.observations + second.observations, first.catalog | second.catalog, evidence
-    )
+    ), datetime.now(UTC).date())
+
+
+UPSTREAM_METADATA: dict[str, dict[str, Any]] = {}
+
+
+def collect_raw_data(start_date: date | None = None) -> dict[date, dict[str, float | None]]:
+    """Expose the canonical mapping and refresh upstream descriptors on every call."""
+    UPSTREAM_METADATA.clear()
+    data = collect()
+    UPSTREAM_METADATA.update(data.catalog)
+    parsed: dict[date, dict[str, float | None]] = {}
+    for item in data.observations:
+        if start_date is None or item.reference_date >= start_date:
+            parsed.setdefault(item.reference_date, {})[item.series_id] = item.value
+    logging.getLogger(__name__).info("Parsed %d dates", len(parsed))
+    return parsed
+
+
+def filter_usable_series(data: SourceData, today: date) -> SourceData:
+    """Prune dead or insufficient histories at series level before persistence."""
+    dates: dict[str, list[date]] = {}
+    for item in data.observations:
+        dates.setdefault(item.series_id, []).append(item.reference_date)
+    keep = set()
+    for sid, periods in dates.items():
+        first, last = min(periods), max(periods)
+        stale = (today.year-last.year)*12+today.month-last.month
+        span = (last.year-first.year)*12+last.month-first.month
+        if stale <= MAX_STALE_MONTHS[data.catalog[sid]['frequency']] and span >= MIN_HISTORY_YEARS*12:
+            keep.add(sid)
+        else:
+            logging.getLogger(__name__).info("Dropped %s: stale=%d months history=%d months", sid, stale, span)
+    if not keep:
+        raise SourceLayoutError('No live series with sufficient history')
+    return SourceData([o for o in data.observations if o.series_id in keep], {s:v for s,v in data.catalog.items() if s in keep}, data.releases)
